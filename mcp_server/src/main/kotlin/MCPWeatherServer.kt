@@ -18,10 +18,35 @@ fun `run mcp server`() {
     // Base URL for the Weather API
     val baseUrl = "https://api.weather.gov"
 
+    val server = Server(
+        Implementation(
+            name = "weather", // Tool name is "weather"
+            version = "1.0.0" // Version of the implementation
+        ),
+        ServerOptions(
+            capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true))
+        )
+    )
+
+    // Create a transport using standard IO for server communication
+    val transport = StdioServerTransport(
+        System.`in`.asInput(),
+        System.out.asSink().buffered()
+    )
+
+    runBlocking {
+        server.connect(transport)
+        val done = Job()
+        server.onClose {
+            done.complete()
+        }
+        done.join()
+    }
+
     // Create an HTTP client with a default request configuration and JSON content negotiation
     val httpClient = HttpClient {
         defaultRequest {
-            url(baseUrl)
+            url("https://api.weather.gov")
             headers {
                 append("Accept", "application/geo+json")
                 append("User-Agent", "WeatherApiClient/1.0")
@@ -29,33 +54,15 @@ fun `run mcp server`() {
             contentType(ContentType.Application.Json)
         }
         // Install content negotiation plugin for JSON serialization/deserialization
-        install(ContentNegotiation) {
-            json(Json {
-                ignoreUnknownKeys = true
-                prettyPrint = true
-            })
-        }
+        install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
     }
 
-    // Create the MCP Server instance with a basic implementation
-    val server = Server(
-        Implementation(
-            name = "weather",
-            version = "1.0.0"
-        ),
-        ServerOptions(
-            capabilities = ServerCapabilities(
-                tools = ServerCapabilities.Tools(listChanged = true)
-            )
-        )
-    )
-
-    // Register a tool to fetch weather alerts by state
+// Register a tool to fetch weather alerts by state
     server.addTool(
         name = "get_alerts",
         description = """
-            Get weather alerts for a US state. Input is Two-letter US state code (e.g. CA, NY)
-        """.trimIndent(),
+        Get weather alerts for a US state. Input is Two-letter US state code (e.g. CA, NY)
+    """.trimIndent(),
         inputSchema = Tool.Input(
             properties = JsonObject(
                 mapOf(
@@ -80,5 +87,34 @@ fun `run mcp server`() {
         val alerts = httpClient.getAlerts(state)
 
         CallToolResult(content = alerts.map { TextContent(it) })
+    }
+
+// Register a tool to fetch weather forecast by latitude and longitude
+    server.addTool(
+        name = "get_forecast",
+        description = """
+        Get weather forecast for a specific latitude/longitude
+    """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "latitude" to JsonObject(mapOf("type" to JsonPrimitive("number"))),
+                    "longitude" to JsonObject(mapOf("type" to JsonPrimitive("number"))),
+                )
+            ),
+            required = listOf("latitude", "longitude")
+        )
+    ) { request ->
+        val latitude = request.arguments["latitude"]?.jsonPrimitive?.doubleOrNull
+        val longitude = request.arguments["longitude"]?.jsonPrimitive?.doubleOrNull
+        if (latitude == null || longitude == null) {
+            return@addTool CallToolResult(
+                content = listOf(TextContent("The 'latitude' and 'longitude' parameters are required."))
+            )
+        }
+
+        val forecast = httpClient.getForecast(latitude, longitude)
+
+        CallToolResult(content = forecast.map { TextContent(it) })
     }
 }

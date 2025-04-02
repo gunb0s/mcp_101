@@ -22,7 +22,7 @@ class MCPClient : AutoCloseable {
     private val mcp: Client = Client(clientInfo = Implementation(name = "mcp-client-cli", version = "1.0.0"))
 
     private val messageParamsBuilder: MessageCreateParams.Builder = MessageCreateParams.builder()
-        .model(Model.CLAUDE_3_5_SONNET_20241022)
+        .model(Model.CLAUDE_3_5_SONNET_20240620)
         .maxTokens(1024)
 
     // List of tools offered by the server
